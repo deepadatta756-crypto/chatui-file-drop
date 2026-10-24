@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Claude Code</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; font-family: system-ui, -apple-system, sans-serif;
+    background: #0f1115; color: #e8e8e8; font-size: 18px;
+    display: flex; flex-direction: column; height: 100dvh; overflow: hidden;
+  }
+  header {
+    padding: 12px 14px; background: #161a22;
+    border-bottom: 1px solid #2a2f3a;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .iconbtn {
+    font-size: 26px; background: #1e2330; border: none; color: #e8e8e8;
+    border-radius: 12px; width: 52px; height: 52px; flex-shrink: 0;
+  }
+  header h1 { font-size: 20px; margin: 0; flex: 1; }
+  header .dot { width: 12px; height: 12px; border-radius: 50%; background: #4caf50; flex-shrink: 0; }
+  header .dot.off { background: #f44336; }
+
+  /* side drawers */
+  .drawer {
+    position: fixed; top: 0; bottom: 0; width: 86%; max-width: 360px;
+    background: #161a22; z-index: 50; transition: transform .25s;
+    display: flex; flex-direction: column;
+  }
+  #filesDrawer { left: 0; transform: translateX(-105%); border-right: 1px solid #2a2f3a; }
+  #settingsDrawer { right: 0; transform: translateX(105%); border-left: 1px solid #2a2f3a; }
+  .drawer.open { transform: translateX(0); }
+  .dhead {
+    padding: 14px 16px; font-size: 20px; font-weight: bold;
+    border-bottom: 1px solid #2a2f3a;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .dbody { padding: 8px 16px 16px; overflow-y: auto; flex: 1; }
+  .frow { padding: 15px 10px; border-bottom: 1px solid #232936; font-size: 18px; }
+  .srow { padding: 16px 10px; border-bottom: 1px solid #232936; font-size: 18px; }
+  .srow .lbl { color: #9aa3b2; font-size: 15px; margin-bottom: 6px; }
+  .bigbtn {
+    display: block; width: 100%; padding: 17px; font-size: 19px;
+    border: none; border-radius: 12px; margin: 12px 0;
+  }
+  .bigbtn.green { background: #2e7d32; color: #fff; }
+  .bigbtn.red { background: #b3261e; color: #fff; }
+  .bigbtn.blue { background: #2563eb; color: #fff; }
+  .hint { color: #9aa3b2; font-size: 15px; line-height: 1.5; padding: 8px 10px; }
+  #scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 40; display: none; }
+  #scrim.on { display: block; }
+
+  /* chat */
+  #messages { flex: 1; overflow-y: auto; padding: 16px 12px; display: flex; flex-direction: column; gap: 12px; }
+  .msg { max-width: 88%; padding: 12px 14px; border-radius: 16px; line-height: 1.55; word-wrap: break-word; }
+  .msg.user { align-self: flex-end; background: #2563eb; color: #fff; border-bottom-right-radius: 4px; }
+  .msg.bot { align-self: flex-start; background: #1e2330; border-bottom-left-radius: 4px; }
+  .msg.sys { align-self: center; background: #2a2118; color: #f0b429; font-size: 15px; max-width: 96%; }
+  .msg pre { background: #0b0d12; padding: 10px; border-radius: 8px; overflow-x: auto; font-size: 15px; line-height: 1.45; }
+  .msg.typing { color: #9aa3b2; font-style: italic; }
+  #bar {
+    display: flex; gap: 8px; padding: 10px;
+    background: #161a22; border-top: 1px solid #2a2f3a; align-items: flex-end;
+  }
+  #input {
+    flex: 1; font-size: 18px; padding: 14px; border-radius: 12px;
+    border: 1px solid #2a2f3a; background: #0f1115; color: #e8e8e8;
+    resize: none; max-height: 140px; font-family: inherit;
+  }
+  #sendBtn {
+    font-size: 22px; background: #2563eb; border: none; color: #fff;
+    border-radius: 12px; min-width: 64px; height: 54px; padding: 0 18px; flex-shrink: 0;
+  }
+  #sendBtn:disabled { opacity: .45; }
+</style>
+</head>
+<body>
+<header>
+  <button class="iconbtn" id="filesBtn" title="Files">📁</button>
+  <span class="dot" id="statusDot"></span>
+  <h1>Claude Code</h1>
+  <button class="iconbtn" id="settingsBtn" title="Settings">⚙️</button>
+</header>
+
+<div id="scrim"></div>
+
+<aside class="drawer" id="filesDrawer">
+  <div class="dhead"><span>📁 Files</span><button class="iconbtn" data-close>✕</button></div>
+  <div class="dbody">
+    <div class="srow"><div class="lbl">Folder</div><div id="curPath">/</div></div>
+    <div id="fileList"></div>
+  </div>
+</aside>
+
+<aside class="drawer" id="settingsDrawer">
+  <div class="dhead"><span>⚙️ Settings</span><button class="iconbtn" data-close>✕</button></div>
+  <div class="dbody">
+    <div class="srow"><div class="lbl">Status</div><div id="connStatus">● Connected</div></div>
+    <button class="bigbtn red" id="toggleBtn">Disconnect</button>
+    <div class="srow"><div class="lbl">Model</div><div id="modelName">—</div></div>
+    <div class="srow"><div class="lbl">Kaam wala folder</div><div>~/myproject</div></div>
+    <div class="srow"><div class="lbl">Upload folder</div><div>~/myproject/uploads</div></div>
+    <button class="bigbtn blue" id="clearBtn">Chat saaf karo</button>
+    <div class="hint">Quota bachane ke liye: github.com/codespaces par jakar codespace ko Stop kar do. Wapas chahiye to wahi se Start.</div>
+  </div>
+</aside>
+
+<div id="messages"></div>
+<div id="bar">
+  <button class="iconbtn" id="uploadBtn" title="File upload">📎</button>
+  <input type="file" id="fileInput" style="display:none">
+  <textarea id="input" rows="1" placeholder="Yahan likho..."></textarea>
+  <button id="sendBtn" title="Bhejo">➤</button>
+</div>
+
+<script>
+const msgs = document.getElementById('messages');
+const input = document.getElementById('input');
+const sendBtn = document.getElementById('sendBtn');
+const fileInput = document.getElementById('fileInput');
+let connected = true;
+
+/* ---------- helpers ---------- */
+function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmt(t){
+  let h = esc(t);
+  h = h.replace(/```(\w*)\n([\s\S]*?)```/g, function(m, l, c){
+    return '<pre>' + c.replace(/^\n+|\n+$/g,'') + '</pre>';
+  });
+  h = h.replace(/\n/g,'<br>');
+  return h;
+}
+function addMsg(text, cls){
+  const d = document.createElement('div');
+  d.className = 'msg ' + cls;
+  d.innerHTML = cls === 'bot' ? fmt(text) : esc(text).replace(/\n/g,'<br>');
+  msgs.appendChild(d);
+  msgs.scrollTop = msgs.scrollHeight;
+  return d;
+}
+
+/* ---------- drawers ---------- */
+function closeDrawers(){
+  document.querySelectorAll('.drawer').forEach(function(d){ d.classList.remove('open'); });
+  document.getElementById('scrim').classList.remove('on');
+}
+function openDrawer(id){
+  closeDrawers();
+  document.getElementById(id).classList.add('open');
+  document.getElementById('scrim').classList.add('on');
+}
+document.getElementById('filesBtn').onclick = function(){ loadFiles(''); openDrawer('filesDrawer'); };
+document.getElementById('settingsBtn').onclick = function(){ loadState(); openDrawer('settingsDrawer'); };
+document.getElementById('scrim').onclick = closeDrawers;
+document.querySelectorAll('[data-close]').forEach(function(b){ b.onclick = closeDrawers; });
+
+/* ---------- settings ---------- */
+async function loadState(){
+  try {
+    const r = await fetch('/api/state');
+    const j = await r.json();
+    connected = !!j.connected;
+    const dot = document.getElementById('statusDot');
+    dot.classList.toggle('off', !connected);
+    const cs = document.getElementById('connStatus');
+    cs.textContent = connected ? '● Connected' : '○ Disconnected';
+    cs.style.color = connected ? '#4caf50' : '#f44336';
+    const tb = document.getElementById('toggleBtn');
+    tb.textContent = connected ? 'Disconnect' : 'Connect';
+    tb.className = 'bigbtn ' + (connected ? 'red' : 'green');
+    document.getElementById('modelName').textContent = j.model || '—';
+  } catch(e){ /* offline */ }
+}
+document.getElementById('toggleBtn').onclick = async function(){
+  await fetch('/api/toggle', {method: 'POST'});
+  loadState();
+};
+document.getElementById('clearBtn').onclick = function(){
+  msgs.innerHTML = '';
+  addMsg('Chat saaf ho gaya. Naya message bhejo.', 'bot');
+  closeDrawers();
+};
+
+/* ---------- files ---------- */
+let curPath = '';
+async function loadFiles(path){
+  const r = await fetch('/api/files?path=' + encodeURIComponent(path || ''));
+  const j = await r.json();
+  curPath = path || '';
+  document.getElementById('curPath').textContent = j.path || '/';
+  const list = document.getElementById('fileList');
+  list.innerHTML = '';
+  if(curPath){
+    const up = document.createElement('div');
+    up.className = 'frow'; up.textContent = '⬆️ .. (upar jao)';
+    up.onclick = function(){
+      const parts = curPath.split('/').filter(Boolean);
+      parts.pop();
+      loadFiles(parts.join('/'));
+    };
+    list.appendChild(up);
+  }
+  (j.items || []).forEach(function(it){
+    const d = document.createElement('div');
+    d.className = 'frow';
+    d.textContent = (it.is_dir ? '📁 ' : '📄 ') + it.name;
+    if(it.is_dir){
+      d.onclick = function(){ loadFiles(curPath ? curPath + '/' + it.name : it.name); };
+    }
+    list.appendChild(d);
+  });
+  if(!(j.items || []).length){
+    const d = document.createElement('div');
+    d.className = 'frow'; d.textContent = '(khali folder)';
+    list.appendChild(d);
+  }
+}
+
+/* ---------- chat ---------- */
+async function poll(jobId, bubble){
+  try {
+    const r = await fetch('/api/status/' + jobId);
+    const j = await r.json();
+    if(j.status === 'done'){
+      bubble.classList.remove('typing');
+      if(j.error){ bubble.innerHTML = 'Error: ' + esc(j.error); }
+      else { bubble.innerHTML = fmt(j.reply || '(khali jawab)'); }
+      msgs.scrollTop = msgs.scrollHeight;
+      sendBtn.disabled = false;
+    } else {
+      setTimeout(function(){ poll(jobId, bubble); }, 2000);
+    }
+  } catch(e){
+    bubble.classList.remove('typing');
+    bubble.innerHTML = 'Error: ' + esc(String(e));
+    sendBtn.disabled = false;
+  }
+}
+async function send(){
+  const text = input.value.trim();
+  if(!text || sendBtn.disabled) return;
+  if(!connected){
+    addMsg('Pehle ⚙️ Settings me jakar Connect dabao.', 'sys');
+    return;
+  }
+  addMsg(text, 'user');
+  input.value = '';
+  sendBtn.disabled = true;
+  const bubble = addMsg('Soch raha hai...', 'bot typing');
+  try {
+    const r = await fetch('/api/chat', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message: text})
+    });
+    const j = await r.json();
+    if(j.job_id){ poll(j.job_id, bubble); }
+    else { bubble.classList.remove('typing'); bubble.textContent = 'Error: ' + (j.error || 'unknown'); sendBtn.disabled = false; }
+  } catch(e){
+    bubble.classList.remove('typing');
+    bubble.textContent = 'Error: ' + String(e);
+    sendBtn.disabled = false;
+  }
+}
+sendBtn.onclick = send;
+input.addEventListener('keydown', function(e){
+  if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); send(); }
+});
+
+/* ---------- upload ---------- */
+document.getElementById('uploadBtn').onclick = function(){ fileInput.click(); };
+fileInput.onchange = async function(e){
+  const f = e.target.files[0];
+  if(!f) return;
+  addMsg('Upload ho raha hai: ' + f.name, 'user');
+  const fd = new FormData();
+  fd.append('file', f);
+  try {
+    const r = await fetch('/api/upload', {method: 'POST', body: fd});
+    const j = await r.json();
+    if(j.ok){
+      let t = 'Upload ho gaya: ' + j.saved + '\nFolder: ' + j.extracted_to;
+      if(j.files && j.files.length){
+        t += '\nFiles (' + j.files.length + '):\n- ' + j.files.slice(0, 15).join('\n- ');
+        if(j.files.length > 15) t += '\n...aur ' + (j.files.length - 15);
+      }
+      t += '\n\nAb batao is par kya karwana hai.';
+      addMsg(t, 'sys');
+    } else {
+      addMsg('Upload fail: ' + (j.error || 'unknown'), 'sys');
+    }
+  } catch(err){
+    addMsg('Upload fail: ' + String(err), 'sys');
+  }
+  e.target.value = '';
+};
+
+/* ---------- init ---------- */
+loadState();
+addMsg('Namaste! Neeche likhkar bhejo — jawab apne aap ayega. 📎 se zip/code file upload kar sakte ho. ⚙️ me settings, 📁 me files.', 'bot');
+</script>
+</body>
+</html>
