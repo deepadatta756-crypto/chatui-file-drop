@@ -210,6 +210,8 @@ async function loadFiles(path){
     d.textContent = (it.is_dir ? '📁 ' : '📄 ') + it.name;
     if(it.is_dir){
       d.onclick = function(){ loadFiles(curPath ? curPath + '/' + it.name : it.name); };
+    } else {
+      d.onclick = function(){ viewFile(curPath ? curPath + '/' + it.name : it.name); };
     }
     list.appendChild(d);
   });
@@ -218,6 +220,27 @@ async function loadFiles(path){
     d.className = 'frow'; d.textContent = '(khali folder)';
     list.appendChild(d);
   }
+}
+
+/* ---------- file view ---------- */
+async function viewFile(path){
+  closeDrawers();
+  addMsg('File khol raha hun: ' + path, 'user');
+  const bubble = addMsg('Padh raha hai...', 'bot typing');
+  try {
+    const r = await fetch('/api/file?path=' + encodeURIComponent(path));
+    const j = await r.json();
+    bubble.classList.remove('typing');
+    if(j.content !== undefined){
+      bubble.innerHTML = fmt('File: ' + j.name + '\n```\n' + j.content + '\n```');
+    } else {
+      bubble.innerHTML = 'Error: ' + esc(j.error || 'unknown');
+    }
+  } catch(e){
+    bubble.classList.remove('typing');
+    bubble.innerHTML = 'Error: ' + esc(String(e));
+  }
+  msgs.scrollTop = msgs.scrollHeight;
 }
 
 /* ---------- chat ---------- */

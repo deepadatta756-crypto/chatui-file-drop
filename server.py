@@ -1,9 +1,19 @@
 #!/usr/bin/env python3
-"""Mobile chat bridge: chat UI -> Claude Code (headless) -> local Ollama model."""
+"""Mobile chat bridge: chat UI -> Ollama (qwen2.5-coder:7b) directly.
+
+NOTE (2026-10-23): Claude Code's headless mode (`claude -p --model ...`) fails
+on this setup with `[claude-code:unrecognized_model]` — the model isn't
+recognized by Claude Code 2.1.310's SDK layer, so no agentic loop runs.
+The interactive terminal path (`ollama launch claude`) is unaffected.
+This server therefore talks to Ollama's chat API directly: reliable
+question-answer + code. The Claude Code agent remains available in the
+codespace terminal for real agentic work.
+"""
+import json as _json
 import os
 import queue
-import subprocess
 import threading
+import urllib.request
 import uuid
 import zipfile
 from pathlib import Path
@@ -18,21 +28,20 @@ APP_DIR = Path(__file__).resolve().parent
 PROJECT_R = PROJECT.resolve()
 
 MODEL = "qwen2.5-coder:7b"
-# NOTE: --dangerously-skip-permissions is added by the setup task only if the
-# headless permission test shows tool calls get blocked without it.
-CLAUDE_FLAGS = ["-p", "--model", MODEL]
-
-BASE_ENV = {
-    "ANTHROPIC_BASE_URL": "http://localhost:11434",
-    "ANTHROPIC_AUTH_TOKEN": "ollama",
-    "ANTHROPIC_API_KEY": "",
-}
+OLLAMA_URL = "http://localhost:11434"
+SYSTEM_PROMPT = (
+    "Tum ek helpful coding assistant ho. User Hindi, Hinglish ya English me "
+    "baat karega — usi bhasha me jawab do. Code hamesha ```language fences "
+    "me do. Jawab saaf-suthra aur to-the-point rakho."
+)
 
 app = Flask(__name__)
 jobs = {}
 job_q = queue.Queue()
 state = {"connected": True}
 state_lock = threading.Lock()
+history = []  # last 20 messages, single-user
+history_lock = threading.Lock()
 
 
 def is_connected():
@@ -40,22 +49,40 @@ def is_connected():
         return state["connected"]
 
 
-def run_claude(prompt):
-    cmd = ["claude"] + CLAUDE_FLAGS + [prompt]
-    env = dict(os.environ)
-    env.update(BASE_ENV)
+def ollama_chat(messages):
+    body = _json.dumps(
+        {
+            "model": MODEL,
+            "messages": messages,
+            "stream": False,
+            "options": {"num_ctx": 8192},
+        }
+    ).encode()
+    req = urllib.request.Request(
+        OLLAMA_URL + "/api/chat",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=1500) as r:
+        data = _json.loads(r.read().decode())
+    return ((data.get("message") or {}).get("content") or "").strip()
+
+
+def run_chat(prompt):
+    with history_lock:
+        history.append({"role": "user", "content": prompt})
+        msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + history[-20:]
     try:
-        p = subprocess.run(
-            cmd, cwd=str(PROJECT), env=env,
-            capture_output=True, text=True, timeout=1500,
-        )
-    except subprocess.TimeoutExpired:
-        return None, "Time out ho gaya (25 min). Dobara try karo."
-    out = (p.stdout or "").strip()
-    err = (p.stderr or "").strip()
-    if p.returncode != 0 and not out:
-        return None, err or "Claude error code %d" % p.returncode
-    return out, None
+        reply = ollama_chat(msgs)
+    except Exception as e:
+        return None, "Ollama error: %s" % e
+    if not reply:
+        return None, "Khali jawab aya."
+    with history_lock:
+        history.append({"role": "assistant", "content": reply})
+        del history[:-20]
+    return reply, None
 
 
 def worker():
@@ -63,7 +90,7 @@ def worker():
         job_id, prompt = job_q.get()
         jobs[job_id]["status"] = "running"
         try:
-            reply, error = run_claude(prompt)
+            reply, error = run_chat(prompt)
             jobs[job_id].update(status="done", reply=reply, error=error)
         except Exception as e:  # never leave a job hanging
             jobs[job_id].update(status="done", reply=None, error=str(e))
@@ -135,6 +162,25 @@ def files():
         items.append({"name": c.name, "is_dir": c.is_dir()})
     disp = str(p.relative_to(PROJECT_R))
     return jsonify({"path": "/" if disp == "." else "/" + disp, "items": items[:200]})
+
+
+@app.get("/api/file")
+def read_file():
+    rel = (request.args.get("path") or "").strip()
+    p = (PROJECT / rel).resolve()
+    try:
+        p.relative_to(PROJECT_R)
+    except ValueError:
+        return jsonify({"error": "not allowed"}), 403
+    if not p.is_file():
+        return jsonify({"error": "file nahi hai"}), 400
+    if p.stat().st_size > 102400:
+        return jsonify({"error": "file bahut badi hai (100KB se zyada)"}), 400
+    try:
+        text = p.read_text(encoding="utf-8", errors="strict")
+    except Exception:
+        return jsonify({"error": "ye text file nahi hai"}), 400
+    return jsonify({"name": p.name, "content": text})
 
 
 @app.post("/api/upload")
